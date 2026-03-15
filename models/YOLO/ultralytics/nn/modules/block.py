@@ -58,7 +58,8 @@ __all__ = (
     "C3k",
     "A2C2f",
     "HyperACE2",
-    "DSBottleneck"
+    "DSBottleneck",
+    "DSC3k",
 )
 
 
@@ -1964,18 +1965,45 @@ class FuseModule2(FuseModule):
         #以中间通道为基准，0.5+1+2=3.5
         self.conv_out = Conv(int(3.5*c_in), c_in, 1)
 
-class HyperACE2(HyperACE):
-    def __init__(self, c1, c2, n=1, num_hyperedges=8, dsc3k=True, shortcut=False, e1=0.5, e2=1, context="both"):
-        super().__init__(c1, c2, n, num_hyperedges, dsc3k, shortcut, e1, e2)
+class HyperACE2(nn.Module):
+    def __init__(self, c1, c2, n=1, num_hyperedges=8, e1=0.5, e2=1, context="both", channel_adjust=True):
+        super().__init__()
+        self.c = int(c2 * e1)
+        self.cv1 = Conv(c1, 2 * self.c, 1, 1)
+        self.cv2 = Conv((2 + n) * self.c, c2, 1)
+        self.m = nn.ModuleList(
+            C3Ghost(self.c, self.c, 2) for _ in range(n)
+        )
+        self.fuse = FuseModule(c1, channel_adjust)
+        self.branch = C3AH(self.c, self.c, e2, num_hyperedges, context)
+
+    def forward(self, X):
+        x = self.fuse(X)
+        y = list(self.cv1(x).chunk(2, 1))
+        out = self.branch(y[1])
+        y.extend(m(y[-1]) for m in self.m)
+        y[1] = out
+        return self.cv2(torch.cat(y, 1))
+
+class HyperACE3(nn.Module):
+    def __init__(self, c1, c2, n=1, num_hyperedges=8, shortcut=False, e1=0.5, e2=1, context="both", channel_adjust=True):
+        super().__init__()
         self.c = int(c2 * e1)
         self.cv1 = Conv(c1, 3 * self.c, 1, 1)
         self.cv2 = Conv((4 + n) * self.c, c2, 1)
         self.m = nn.ModuleList(
-            DSC3k(self.c, self.c, 2, shortcut, k1=3, k2=7) if dsc3k
-            else DSBottleneck(self.c, self.c, shortcut=shortcut)
-            for _ in range(n)
+            C3Ghost(self.c, self.c, 2, shortcut) for _ in range(n)
         )
-        self.fuse = FuseModule2(c1)
+        self.fuse = FuseModule(c1, channel_adjust)
         self.branch1 = C3AH(self.c, self.c, e2, num_hyperedges, context)
         self.branch2 = C3AH(self.c, self.c, e2, num_hyperedges, context)
 
+    def forward(self, X):
+        x = self.fuse(X)
+        y = list(self.cv1(x).chunk(3, 1))
+        out1 = self.branch1(y[1])
+        out2 = self.branch2(y[1])
+        y.extend(m(y[-1]) for m in self.m)
+        y[1] = out1
+        y.append(out2)
+        return self.cv2(torch.cat(y, 1))

@@ -17,88 +17,10 @@ Example:
     ```
 """
 
-from .block import (
-    C1,
-    C2,
-    C2PSA,
-    C3,
-    C3TR,
-    CIB,
-    DFL,
-    ELAN1,
-    PSA,
-    SPP,
-    SPPELAN,
-    SPPF,
-    AConv,
-    ADown,
-    Attention,
-    BNContrastiveHead,
-    Bottleneck,
-    BottleneckCSP,
-    C2f,
-    C2fAttn,
-    C2fCIB,
-    C2fPSA,
-    C3Ghost,
-    C3k2,
-    C3x,
-    CBFuse,
-    CBLinear,
-    ContrastiveHead,
-    GhostBottleneck,
-    HGBlock,
-    HGStem,
-    ImagePoolingAttn,
-    Proto,
-    RepC3,
-    RepNCSPELAN4,
-    RepVGGDW,
-    ResNetLayer,
-    SCDown,
-    TorchVision,
-    A2C2f,
-    HyperACE,
-    DownsampleConv,
-    FullPAD_Tunnel,
-    DSC3k2,
-
-    C3k,
-    HyperACE2,
-    DSBottleneck,
-)
-from .conv import (
-    CBAM,
-    ChannelAttention,
-    Concat,
-    Conv,
-    Conv2,
-    DSConv,
-    ConvTranspose,
-    DWConv,
-    DWConvTranspose2d,
-    Focus,
-    GhostConv,
-    Index,
-    LightConv,
-    RepConv,
-    SpatialAttention,
-
-    autopad,
-)
-from .head import OBB, Classify, Detect, Pose, RTDETRDecoder, Segment, WorldDetect, v10Detect
-from .transformer import (
-    AIFI,
-    MLP,
-    DeformableTransformerDecoder,
-    DeformableTransformerDecoderLayer,
-    LayerNorm2d,
-    MLPBlock,
-    MSDeformAttn,
-    TransformerBlock,
-    TransformerEncoderLayer,
-    TransformerLayer,
-)
+from .block import *
+from .conv import *
+from .head import *
+from .transformer import *
 
 __all__ = (
     "Conv",
@@ -183,4 +105,5 @@ __all__ = (
     "autopad",
     "HyperACE2",
     "DSBottleneck",
+    "DSC3k",
 )

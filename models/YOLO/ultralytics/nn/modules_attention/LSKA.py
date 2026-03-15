@@ -1,8 +1,23 @@
 import torch
 import torch.nn as nn
 import math
-from functools import partial
-from timm.layers import LayerNorm2d, DropPath, to_2tuple
+from timm.layers import DropPath, to_2tuple, trunc_normal_
+
+
+def _init_weights(m):
+    if isinstance(m, nn.Linear):
+        trunc_normal_(m.weight, std=.02)
+        if isinstance(m, nn.Linear) and m.bias is not None:
+            nn.init.constant_(m.bias, 0)
+    elif isinstance(m, nn.LayerNorm):
+        nn.init.constant_(m.bias, 0)
+        nn.init.constant_(m.weight, 1.0)
+    elif isinstance(m, nn.Conv2d):
+        fan_out = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+        fan_out //= m.groups
+        m.weight.data.normal_(0, math.sqrt(2.0 / fan_out))
+        if m.bias is not None:
+            m.bias.data.zero_()
 
 class Mlp(nn.Module):
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):
@@ -14,6 +29,7 @@ class Mlp(nn.Module):
         self.act = act_layer()
         self.fc2 = nn.Conv2d(hidden_features, out_features, 1)
         self.drop = nn.Dropout(drop)
+        self.apply(_init_weights)
 
     def forward(self, x):
         x = self.fc1(x)
@@ -25,73 +41,105 @@ class Mlp(nn.Module):
         return x
 
 
-class LSKblock(nn.Module):
-    def __init__(self, dim):
+class LSKblock(nn.Module):#原名LSKA
+    def __init__(self, dim, k_size=7):
         super().__init__()
-        self.conv0 = nn.Conv2d(dim, dim, 5, padding=2, groups=dim)
-        self.conv_spatial = nn.Conv2d(dim, dim, 7, stride=1, padding=9, groups=dim, dilation=3)
-        self.conv1 = nn.Conv2d(dim, dim//2, 1)
-        self.conv2 = nn.Conv2d(dim, dim//2, 1)
-        self.conv_squeeze = nn.Conv2d(2, 2, 7, padding=3)
-        self.conv = nn.Conv2d(dim//2, dim, 1)
+        self.k_size = k_size
 
-    def forward(self, x):   
-        attn1 = self.conv0(x)
-        attn2 = self.conv_spatial(attn1)
+        if k_size == 7:
+            k0h, k0v = (1, 3), (3, 1)
+            p0h, p0v = (0, 1), (1, 0)
+            ksh, ksv = (1, 3), (3, 1)
+            psh, psv = (0, 2), (2, 0)
+            d = 2
+        elif k_size == 11:
+            k0h, k0v = (1, 3), (3, 1)
+            p0h, p0v = (0, 1), (1, 0)
+            ksh, ksv = (1, 5), (5, 1)
+            psh, psv = (0, 4), (4, 0)
+            d = 2
+        elif k_size == 23:
+            k0h, k0v = (1, 5), (5, 1)
+            p0h, p0v = (0, 2), (2, 0)
+            ksh, ksv = (1, 7), (7, 1)
+            psh, psv = (0, 9), (9, 0)
+            d = 3
+        elif k_size == 35:
+            k0h, k0v = (1, 5), (5, 1)
+            p0h, p0v = (0, 2), (2, 0)
+            ksh, ksv = (1, 11), (11, 1)
+            psh, psv = (0, 15), (15, 0)
+            d = 3
+        elif k_size == 41:
+            k0h, k0v = (1, 5), (5, 1)
+            p0h, p0v = (0, 2), (2, 0)
+            ksh, ksv = (1, 13), (13, 1)
+            psh, psv = (0, 18), (18, 0)
+            d = 3
+        elif k_size == 53:
+            k0h, k0v = (1, 5), (5, 1)
+            p0h, p0v = (0, 2), (2, 0)
+            ksh, ksv = (1, 17), (17, 1)
+            psh, psv = (0, 24), (24, 0)
+            d = 3
+        else:
+            raise NotImplementedError(f"Invalid k_size {k_size}")
 
-        attn1 = self.conv1(attn1)
-        attn2 = self.conv2(attn2)
-        
-        attn = torch.cat([attn1, attn2], dim=1)
-        avg_attn = torch.mean(attn, dim=1, keepdim=True)
-        max_attn, _ = torch.max(attn, dim=1, keepdim=True)
-        agg = torch.cat([avg_attn, max_attn], dim=1)
-        sig = self.conv_squeeze(agg).sigmoid()
-        attn = attn1 * sig[:,0,:,:].unsqueeze(1) + attn2 * sig[:,1,:,:].unsqueeze(1)
-        attn = self.conv(attn)
-        return x * attn
+        self.conv0h = nn.Conv2d(dim, dim, kernel_size=k0h, stride=(1, 1), padding=p0h, groups=dim)
+        self.conv0v = nn.Conv2d(dim, dim, kernel_size=k0v, stride=(1, 1), padding=p0v, groups=dim)
+        self.conv_spatial_h = nn.Conv2d(dim, dim, kernel_size=ksh, stride=(1, 1), padding=psh, groups=dim, dilation=d)
+        self.conv_spatial_v = nn.Conv2d(dim, dim, kernel_size=ksv, stride=(1, 1), padding=psv, groups=dim, dilation=d)
+
+        self.conv1 = nn.Conv2d(dim, dim, 1)
+
+
+    def forward(self, x):
+        u = x.clone()
+        attn = self.conv0h(x)
+        attn = self.conv0v(attn)
+        attn = self.conv_spatial_h(attn)
+        attn = self.conv_spatial_v(attn)
+        attn = self.conv1(attn)
+        return u * attn
 
 
 
 class Attention(nn.Module):
-    """LSK Token Mixer, 用卷积+门控的方式模拟Attention"""
-    def __init__(self, d_model):
+    def __init__(self, d_model, k_size):
         super().__init__()
 
         self.proj_1 = nn.Conv2d(d_model, d_model, 1)
         self.activation = nn.GELU()
-        self.spatial_gating_unit = LSKblock(d_model)
+        self.spatial_gating_unit = LSKblock(d_model, k_size)
         self.proj_2 = nn.Conv2d(d_model, d_model, 1)
 
     def forward(self, x):
-        x_raw = x.clone()
+        shortcut = x.clone()
         x = self.proj_1(x)
         x = self.activation(x)
         x = self.spatial_gating_unit(x)
         x = self.proj_2(x)
-        x = x + x_raw
+        x = x + shortcut
         return x
 
 
 class Block(nn.Module):
-    """MetaFormer Block, 通用Backbone模块"""
-    def __init__(self, dim, mlp_ratio=4., drop=0.,drop_path=0., act_layer=nn.GELU, norm_cfg=None):
+    def __init__(self, dim, k_size, mlp_ratio=4., drop=0.,drop_path=0., act_layer=nn.GELU):
         super().__init__()
-        if norm_cfg:
-            self.norm1 = LayerNorm2d(dim)
-            self.norm2 = LayerNorm2d(dim)
-        else:
-            self.norm1 = nn.BatchNorm2d(dim)
-            self.norm2 = nn.BatchNorm2d(dim)
-        self.attn = Attention(dim)
+        self.norm1 = nn.BatchNorm2d(dim)
+        self.attn = Attention(dim, k_size)
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
+
+        self.norm2 = nn.BatchNorm2d(dim)
         mlp_hidden_dim = int(dim * mlp_ratio)
         self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
-        layer_scale_init_value = 1e-2            
+        layer_scale_init_value = 1e-2
         self.layer_scale_1 = nn.Parameter(
             layer_scale_init_value * torch.ones(dim), requires_grad=True)
         self.layer_scale_2 = nn.Parameter(
             layer_scale_init_value * torch.ones(dim), requires_grad=True)
+
+        self.apply(_init_weights)
 
     def forward(self, x):
         x = x + self.drop_path(self.layer_scale_1.unsqueeze(-1).unsqueeze(-1) * self.attn(self.norm1(x)))
@@ -102,114 +150,20 @@ class Block(nn.Module):
 class OverlapPatchEmbed(nn.Module):
     """ Image to Patch Embedding"""
 
-    def __init__(self, patch_size=7, stride=4, in_chans=3, embed_dim=768, norm_cfg=None):
+    def __init__(self, in_chans=3, embed_dim=768, patch_size=7, stride=4):
         super().__init__()
         patch_size = to_2tuple(patch_size)
         self.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=stride,
                               padding=(patch_size[0] // 2, patch_size[1] // 2))
-        if norm_cfg:
-            self.norm = LayerNorm2d(embed_dim)
-        else:
-            self.norm = nn.BatchNorm2d(embed_dim)
+        self.norm = nn.BatchNorm2d(embed_dim)
 
+        self.apply(_init_weights)
 
     def forward(self, x):
         x = self.proj(x)
         _, _, H, W = x.shape
         x = self.norm(x)        
         return x, H, W
-
-class LSKNet(nn.Module):
-    def __init__(
-            self,
-            in_chans=3,
-            embed_dims=(64, 128, 256, 512),
-            mlp_ratios=(8, 8, 4, 4),
-            drop_rate=0.,
-            drop_path_rate=0.,
-            norm_layer=partial(nn.LayerNorm, eps=1e-6),
-            depths=(3, 4, 6, 3),
-            num_stages=4,
-            pretrained=None,
-            init_cfg=None,
-            norm_cfg=None):
-        super().__init__(init_cfg=init_cfg)
-        
-        assert not (init_cfg and pretrained), 'init_cfg and pretrained cannot be set at the same time'
-        if isinstance(pretrained, str):
-            print('DeprecationWarning: pretrained is deprecated, please use "init_cfg" instead')
-            self.init_cfg = dict(type='Pretrained', checkpoint=pretrained)
-        elif pretrained is not None:
-            raise TypeError('pretrained must be a str or None')
-        self.depths = depths
-        self.num_stages = num_stages
-
-        # stochastic depth decay rule
-        dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]
-        cur = 0
-
-        self.patch_embeds, self.blocks, self.norms = [], [], []
-        for i in range(num_stages):
-            patch_embed = OverlapPatchEmbed(
-                patch_size=7 if i == 0 else 3,
-                stride=4 if i == 0 else 2,
-                in_chans=in_chans if i == 0 else embed_dims[i - 1],
-                embed_dim=embed_dims[i],
-                norm_cfg=norm_cfg
-            )
-
-            block = nn.ModuleList([
-                Block(
-                    dim=embed_dims[i],
-                    mlp_ratio=mlp_ratios[i],
-                    drop=drop_rate,
-                    drop_path=dpr[cur + j],
-                    norm_cfg=norm_cfg
-                ) for j in range(depths[i])
-            ])
-            norm = norm_layer(embed_dims[i])
-            cur += depths[i]
-
-            self.patch_embeds.append(patch_embed)
-            self.blocks.append(block)
-            self.norms.append(norm)
-
-    def init_weights(self):
-        print('init cfg', self.init_cfg)
-        if self.init_cfg is None:
-            for m in self.modules():
-                if isinstance(m, nn.Linear):
-                    nn.init.trunc_normal_(m.weight, std=.02)
-                elif isinstance(m, nn.LayerNorm):
-                    nn.init.constant_(m.bias, 0)
-                    nn.init.constant_(m.weight, 1.0)
-                elif isinstance(m, nn.Conv2d):
-                    fan_out = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                    fan_out //= m.groups
-                    nn.init.normal_(m.weight, mean=0, std=math.sqrt(2.0 / fan_out))
-        else:
-            super(LSKNet, self).init_weights()
-
-    def forward_features(self, x):
-        B = x.shape[0]
-        outs = []
-        for i in range(self.num_stages):
-            patch_embed = self.patch_embeds[i]
-            block = self.blocks[i]
-            norm = self.norms[i]
-            x, H, W = patch_embed(x)
-            for blk in block:
-                x = blk(x)
-            x = x.flatten(2).transpose(1, 2)
-            x = norm(x)
-            x = x.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()
-            outs.append(x)
-        return outs
-
-    def forward(self, x):
-        x = self.forward_features(x)
-        # x = self.head(x)
-        return x
 
 
 class DWConv(nn.Module):
@@ -220,15 +174,3 @@ class DWConv(nn.Module):
     def forward(self, x):
         x = self.dwconv(x)
         return x
-
-
-def _conv_filter(state_dict, patch_size=16):
-    """ convert patch embedding weight from manual patchify + linear proj to conv"""
-    out_dict = {}
-    for k, v in state_dict.items():
-        if 'patch_embed.proj.weight' in k:
-            v = v.reshape((v.shape[0], 3, patch_size, patch_size))
-        out_dict[k] = v
-
-    return out_dict
-

@@ -138,7 +138,6 @@ def display_images(img_file:list[str]|str, titles:list[str]=None, rows:int=None,
 if __name__ == '__main__':
     img_raw = r"E:\Projects\Datasets\example\healthy.jpg"
     #outfiles = transform_visualization(img_raw)
-    #outfiles.insert(0, img_raw)
     outfiles = [rf"E:\Projects\PyCharm\Paper2\global_utils\cache\transform{i}.png" for i in range(1, 8)]
-    outfiles.append(img_raw)
+    outfiles.insert(0, img_raw)
     display_images(outfiles, ['Original', 'Mosaic', 'HSV', 'Scale', 'Erasing', 'Mixup', 'Copy-Paste', 'Flip'], 2, 4)
