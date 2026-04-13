@@ -165,10 +165,10 @@ def replot_conf_matrix(font_scale=1.5, figure_size=(12, 10)):
 
     labels = ['algal leaf spot', 'brown blight', 'grey-blight', 'background']
     cm_data = np.array([
-        [118, 0, 0, 11],  # Predicted: algal leaf spot
-        [0, 98, 0, 7],  # Predicted: brown blight
-        [0, 0, 101, 4],  # Predicted: grey blight
-        [9, 4, 11, 0]  # Predicted: background
+        [0.91, 0, 0.01, 0.37],  # Predicted: algal leaf spot
+        [0, 0.94, 0, 0.22],  # Predicted: brown blight
+        [0, 0, 0.91, 0.42],  # Predicted: grey blight
+        [0.09, 0.06, 0.08, 0]  # Predicted: background
     ])
 
     plt.figure(figsize=figure_size)
@@ -179,6 +179,9 @@ def replot_conf_matrix(font_scale=1.5, figure_size=(12, 10)):
     ax = sns.heatmap(cm_data, annot=annot_labels, fmt='', cmap='Blues',
                      xticklabels=labels, yticklabels=labels, cbar=True, square=True,
                      annot_kws={"size": 16 * font_scale, "weight": "normal"})
+
+    cbar = ax.collections[0].colorbar
+    cbar.ax.tick_params(labelsize=12 * font_scale, pad=10)
 
     ax.set_xlabel('True', fontsize=16 * font_scale, labelpad=15)
     ax.set_ylabel('Predicted', fontsize=16 * font_scale, labelpad=15)

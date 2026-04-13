@@ -1,0 +1,51 @@
+nc: 80 # number of classes
+scales: # model compound scaling constants
+  n: [0.50, 0.25, 114514]
+  s: [0.50, 0.50, 114514]
+
+backbone:
+  # [from, repeats, module, args]
+  - [-1, 1, GhostConv, [64, 3, 2]] # 0
+  - [-1, 1, C3Ghost, [64]]
+  - [-1, 1, DSConv, [128, 3, 2]]
+  - [-1, 2, C3Ghost, [128]]
+  - [-1, 1, DSConv, [256, 3, 2]]
+  - [-1, 8, C3Ghost, [256]]
+  - [-1, 1, Conv, [512, 1, 1]]
+  - [-1, 1, DSConv, [512, 3, 2]]
+  - [-1, 8, C3Ghost, [512]]
+  - [-1, 1, DSConv, [1024, 3, 2]]
+  - [-1, 4, LSKblock, [1024, 35]] # 10
+
+head: # Edit4: HyperACE -> HyperACE-GL
+  - [[6, 8, 10], 2, HyperACE2, [512, 4, 0.25, 0.5, "mean", True]] # 11
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]
+  - [11, 1, DownsampleConv, [True]]
+
+  - [[8, 11], 1, FullPAD_Tunnel, []] # 14
+  - [[6, 12], 1, FullPAD_Tunnel, []]
+  - [[10, 13], 1, FullPAD_Tunnel, []]
+
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]] # 17
+  - [[-1, 14], 1, Concat, [1]]
+  - [-1, 1, C3Ghost, [512]]
+  - [[-1, 11], 1, FullPAD_Tunnel, []]
+
+  - [-2, 1, nn.Upsample, [None, 2, "nearest"]] # 21
+  - [[-1, 15], 1, Concat, [1]]
+  - [-1, 1, C3Ghost, [256]]
+  - [12, 1, DSConv, [256, 1, 1]]
+  - [[-2, -1], 1, FullPAD_Tunnel, []]
+
+  - [-1, 1, DSConv, [256, 3, 2]] # 26
+  - [[-1, 20], 1, Concat, [1]]
+  - [-1, 1, C3Ghost, [512]]
+  - [[-1, 11], 1, FullPAD_Tunnel, []]
+
+  - [-2, 1, DSConv, [512, 3, 2]] # 30
+  - [[-1, 16], 1, Concat, [1]]
+  - [-1, 1, C3Ghost, [1024]]
+  - [[-1, 13], 1, FullPAD_Tunnel, []]
+
+  # Detect(P3, P4, P5)
+  - [[-9, -5, -1], 1, Detect, [nc]] # 34

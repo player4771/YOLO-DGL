@@ -112,11 +112,11 @@ if __name__ == "__main__":
     import ultralytics
     from torchvision import transforms
 
-    model = ultralytics.YOLO(r'E:\Projects\PyCharm\Paper2\models\YOLO\runs\train16\weights\best.pt')
+    model = ultralytics.YOLO(r'E:\Projects\PyCharm\Paper2\models\YOLO\runs\train33\weights\best.pt')
     sample = r"E:\Projects\Datasets\example\algal+gray.jpg"
     model_input = transforms.ToTensor()(Image.open(sample)).unsqueeze(0) #ToTensor会自动HWC->CHW和标准化
 
-    layer_indexes = (26, 31, 36)
+    layer_indexes = (6, 8, 10)
 
     cache_file = f'./cache/{hash(layer_indexes)}.cache' #用哈希当文件名就是一坨屎，但是能用
     if Path(cache_file).exists():

@@ -47,9 +47,9 @@ def train(model:str, data:str):
 
 if __name__ == '__main__':
     data_yaml = "E:/Projects/Datasets/tea_leaf_diseases/data.yaml"
-    model_file = r"yolov13s_edit13.yaml"
+    model_file = r'yolov13s_edit13.yaml'
 
-    #model, _ = train(model_file, data_yaml)
+    model, _ = train(model_file, data_yaml)
     #YOLO(model_file).val(data=data_yaml)
-    YOLO(model_file).info(detailed=False)
-    #YOLO(model_file).predict(r"E:\Projects\Datasets\example\sample_v4_1.jpg")#[0].save('./results.png')
+    #YOLO(model_file).info(detailed=False)
+    #YOLO(model_file).predict(r"E:\Projects\Datasets\example\sample_v4_1.jpg")[0].save('./results.png')
